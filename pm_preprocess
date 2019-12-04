@@ -1,0 +1,121 @@
+# Cleans daily air quality data from government of ontario data files
+# Add python file to folder populated with ontario particulate matter csv's
+# returns average daily minimum, maximum, mean, and variance for the year
+
+
+import pandas as pd
+import os
+import numpy as np
+
+# list files in current directory
+file_contents = os.listdir('.')
+
+stations = []
+
+# iterate through files and populate list only with csv's
+for i in file_contents:
+    if i[-4:] == '.csv':
+            stations.append(i)
+            
+            
+# read in air quality csvs, drop readings of -999 (missing data) and 9999 (invalid data)
+def cleanup(files):
+    
+    # set empty list to populate with files to concat for final csv
+    station_dfs = []
+    
+    # set index and iterate through files list
+    for index, file in enumerate(files):
+          
+        
+        # count number of rows until 'Station ID' appears
+        all_lines = open(stations[index]).readlines()
+        
+        # open first line of file for heading, remove unwanted characters
+        station_location = all_lines[1].strip(",'int\n'")[:-9]
+        
+        # set value for number of rows to skip in file
+        skip_lines = 0
+        # set initial index for lat and long
+        lat_index = 0
+        long_index = 0
+        # set initial index for station elevation
+        z_index = 0
+        
+        # iterate through all_lines to find 'Station ID', set index value to number of rows to skip
+        for index,values in enumerate(all_lines):
+            if 'Station ID' in values:
+                skip_lines = index
+            if 'Latitude' in values:
+                lat_index = index
+            if 'Longitude' in values:
+                long_index = index   
+            if 'Elevation' in values:
+                z_index = index
+        
+        # create pandas dataframe of individual station data
+        df = pd.read_csv(file, skiprows=skip_lines, header=0, skipfooter=8, index_col=False)
+        
+        hour_cols = ['H01', 'H02','H03', 'H04','H05', 'H06','H07', 'H08','H09', 'H10','H11', 'H12',
+             'H13', 'H14','H15', 'H16','H17', 'H18','H19', 'H20','H21', 'H22','H23', 'H24']
+
+        #create dataframe with 9999 switched to NaN
+        no_9999 = df[df[df.columns] != 9999]
+
+        # create another df with -999 switched to NaN
+        no_err_df = no_9999[no_9999[no_9999.columns]!= -999]
+
+        # drop rows (axis=0) with NaN
+        cleandf = no_err_df.dropna(axis=0)
+
+        # create daily max column
+        cleandf['DailyMax'] = cleandf[hour_cols].max(axis=1)
+
+        # create daily min column
+        cleandf['DailyMin'] = cleandf[hour_cols].min(axis=1)
+
+        # create daily average column
+        cleandf['DailyAvg'] = cleandf[hour_cols].mean(axis=1)
+        
+        #create daily variance column
+        cleandf['DailyVar'] = cleandf[hour_cols].var(axis=1)
+        
+        # extract year from frame
+        year = cleandf.Date[0][:4]
+        
+        # more cleaning steps 
+        summarydf = cleandf.describe()
+        
+        # grab min, max, avg
+        col_slice1 = summarydf.iloc[:,[0,25,26,27,28]]
+        transpose1 = col_slice1.transpose()
+
+        # slice wanted columns, convert from pandas series to dataframe, switch rows to columns
+        final_df = transpose1.iloc[:,1].to_frame().transpose()
+        
+        # add location name to dataframe
+        final_df.insert(1, 'Station_Location', station_location)
+        
+        # add year column
+        final_df['Year'] = year
+        
+        # add lat and long columns
+        final_df['Latitude'] = all_lines[lat_index][8:].strip(",\n")
+        final_df['Longitude'] = all_lines[long_index][9:].strip(",\n")
+
+        # add elevation column
+        final_df['Elevation'] = all_lines[z_index][9:13].strip(",\n")
+        
+        # change Station ID column to remove whitespace
+        file = final_df.rename(columns={"Station ID": "StationID"})
+        
+        # append stations to list
+        station_dfs.append(file)
+        
+    # concat list to final df
+    ontariodf = pd.concat(station_dfs)
+    # export to csv
+    ontariodf.to_csv(r'C:\Users\w0442134\OneDrive - Nova Scotia Community College\GDAA1000\proposal\map_ready_data\south_ontario_pm_2017.csv',
+                    index=None, header=True)
+    
+cleanup(stations)
